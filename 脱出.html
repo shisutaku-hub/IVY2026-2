@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-select=none">
+    <title>クイズゾーンからの脱出</title>
+    <style>
+        :root { --main: #ef4444; --secondary: #f59e0b; --bg: #1e1e2e; --white: #ffffff; --panel: #2a2b3d; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { font-family: sans-serif; background: #0f172a; margin: 0; padding: 0; text-align: center; overflow: hidden; position: fixed; width: 100%; height: 100%; color: #f3f4f6; }
+        #app { width: 100%; height: 100%; background: var(--bg); position: relative; overflow: hidden; }
+        .screen { display: none; width: 100%; height: 100%; position: absolute; top: 0; left: 0; flex-direction: column; }
+        .active { display: flex; }
+
+        /* --- タイトル画面スタイル --- */
+        #screen-title { background: linear-gradient(135deg, #1e3a8a, #3b82f6); overflow-y: auto; display: block; padding: 40px 20px; transition: background 1s; }
+        .title-scroll-container { max-width: 500px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; }
+        #fake-title-area { display: block; width: 100%; }
+        #real-title-area { display: none; width: 100%; }
+        
+        /* 演出用オーバーレイ */
+        #video-overlay { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:black; z-index: 1000; justify-content: center; align-items: center; }
+        #glitch-video { width: 100%; height: 100%; object-fit: contain; }
+        #error-overlay { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:#111; color:#ef4444; z-index: 1001; font-family: monospace; padding: 20px; text-align: left; box-sizing: border-box; font-size: 14px; line-height: 1.5; }
+
+        /* メイン画面（調査エリア一覧） */
+        #screen-main { padding-top: 10px; background: radial-gradient(circle, #2a2b3d 0%, #11111b 100%); }
+        #list-container { padding: 0 15px; margin-top: 10px; z-index: 10; overflow-y: auto; flex: 1; -webkit-overflow-scrolling: touch; }
+        
+        /* エリア選択ボタン */
+        .course-btn { width: 100%; min-height: 75px; padding: 12px 15px; margin: 10px 0; border: 1px solid #45475a; border-radius: 12px; background: var(--panel); box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; flex-direction: column; justify-content: center; align-items: flex-start; position: relative; text-align: left; }
+        .btn-label { font-weight: bold; font-size: 16px; color: #cdd6f4; }
+
+        .cleared { background: #313244 !important; border-color: #a6e3a1 !important; }
+        .cleared .btn-label { color: #a6e3a1; }
+        .cleared::after { content: "クリア"; position: absolute; right: 15px; top: 50%; transform: translateY(-50%); font-size: 12px; background: #22c55e; color: white; padding: 3px 8px; border-radius: 20px; font-weight: bold; }
+
+        /* マップ確認ボタン */
+        .btn-sub { width: 100%; height: 50px; background: #313244; color: #cdd6f4; border: 1px solid #45475a; border-radius: 12px; font-weight: bold; font-size: 15px; cursor: pointer; margin-bottom: 10px; display: flex; justify-content: center; align-items: center; gap: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
+
+        /* モーダル（マップポップアップ） */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 2000; justify-content: center; align-items: center; padding: 20px; }
+        .modal-content { background: var(--panel); width: 100%; max-width: 450px; border-radius: 16px; padding: 15px; border: 1px solid #45475a; position: relative; text-align: center; }
+        .modal-img { width: 100%; max-height: 60vh; object-fit: contain; border-radius: 8px; background: #11111b; margin-top: 10px; }
+
+        /* クイズ画面 */
+        #screen-quiz { padding: 15px; background: #181825; text-align: left; overflow-y: auto; }
+        .q-visual-img, .explanation-img { width: 100%; max-height: 280px; object-fit: contain; margin-bottom: 15px; border-radius: 8px; display: block; background: #11111b; }
+
+        /* 入力エリア */
+        input[type="text"] { width: 100%; height: 55px; border: 2px solid #45475a; border-radius: 12px; background: #313244; color: white; margin-bottom: 12px; font-size: 22px; text-align: center; font-weight: bold; letter-spacing: 2px; }
+        input[type="text"]:focus { border-color: var(--secondary); outline: none; }
+        .btn-main { background: linear-gradient(135deg, var(--main), var(--secondary)); color: white; border: none; height: 55px; border-radius: 12px; font-weight: bold; cursor: pointer; width: 100%; font-size: 17px; box-shadow: 0 4px 10px rgba(239, 68, 68, 0.3); }
+        .btn-fake { background: linear-gradient(135deg, #10b981, #3b82f6); box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3); }
+
+        @keyframes flash {
+            0%, 100% { background: #111; } 50% { background: #500; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <!-- 動画用オーバーレイ -->
+    <div id="video-overlay">
+        <video id="glitch-video" src="" playsinline></video>
+    </div>
+
+    <!-- システム警告画面 -->
+    <div id="error-overlay">
+        <p style="color:white; font-weight:bold;">[SYSTEM NOTICE]</p>
+        <p>LOADING DATABASE CORE...</p>
+        <p>INITIALIZING EMERGENCY GATE LOCK...</p>
+        <p style="color:yellow;">WARNING: AREAS ARE NOW LOCKED DOWN.</p>
+        <p>ALL SYSTEMS GO.</p>
+    </div>
+
+    <!-- タイトル画面 -->
+    <div id="screen-title" class="screen active">
+        <div class="title-scroll-container">
+            <!-- 【初期状態】 -->
+            <div id="fake-title-area">
+                <h1 style="font-size: 28px; color: #facc15; text-shadow: 0 2px 4px rgba(0,0,0,0.3); margin-bottom: 5px;">ポケモンクイズサバイバル</h1>
+                <p style="color: #e2e8f0; font-size: 15px; font-weight: bold; margin-bottom: 30px;">〜最終問題まで生き残れ！〜</p>
+                <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 12px; text-align: left; font-size: 14px; line-height: 1.6; margin-bottom: 25px; color: white;">
+                    <h4 style="margin: 0 0 10px; text-align: center; font-size: 16px;">【ポケモンクイズサバイバルとは】</h4>
+                     ここはザキャンタウンの一角、最新のホログラム技術で区画されたクイズゾーン。<br>
+                    あなたの持ち点は10点。1問間違えるごとに2点ずつ減っていく。<br>
+                    全10問。あなたは無事、最終問題まで生き残れるか？
+                </div>
+                <button class="btn-main btn-fake" onclick="startGlSequence()">サバイバルを開始する</button>
+            </div>
+
+            <!-- 【変貌後】 -->
+            <div id="real-title-area">
+                <h1 style="font-size: 30px; letter-spacing: 2px; color: #ef4444; font-weight: 900; text-shadow: 0 0 10px rgba(239,68,68,0.5);">クイズゾーンからの脱出</h1>
+                <p style="color: #fb7185; font-size: 13px; margin-top: -10px; margin-bottom: 35px; font-weight: bold;">⚠️ システムエラー：クイズゾーン全システムがシャットダウンしました。システムを復旧し、クイズゾーンから脱出してください。</p>
+
+                <button class="btn-main" onclick="changeScreen('screen-main')">復旧をはじめる</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- メイン画面（一覧） -->
+    <div id="screen-main" class="screen">
+        <div style="padding: 15px 15px 5px; text-align: center;">
+            <h2 style="margin: 0; font-size: 20px; color: #f5e0dc;">システム再起動認証一覧</h2>
+            <p style="font-size: 13px; color: #bac2de; margin: 5px 0;">クイズゾーンを調べ、手がかりを元に各認証を終えろ。</p>
+        </div>
+        
+        <div style="padding: 0 15px; margin-top: 5px;">
+            <button class="btn-sub" onclick="openMapModal()">🗺️ マップを確認する</button>
+        </div>
+
+        <div id="list-container">
+            <div id="list"></div>
+            <div id="big-mystery-area"></div>
+        </div>
+    </div>
+
+    <!-- マップ表示用モーダル -->
+    <div id="map-modal" class="modal-overlay" onclick="closeMapModal()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #45475a; padding-bottom:8px;">
+                <span style="font-weight:bold; color:#f5e0dc;">🗺️ 現在のマップ</span>
+                <button onclick="closeMapModal()" style="background:none; border:none; color:#ef4444; font-size:20px; font-weight:bold; cursor:pointer;">✕</button>
+            </div>
+            <div id="map-img-container"></div>
+        </div>
+    </div>
+
+    <!-- クイズ・暗号入力画面 -->
+    <div id="screen-quiz" class="screen">
+        <button onclick="changeScreen('screen-main')" style="background:none; border:none; color: var(--secondary); font-weight:bold; padding: 15px 0; text-align: left; font-size: 15px;">◀ 一覧に戻る</button>
+        <div id="q-header" style="background: #313244; padding: 14px; border-radius: 12px; margin-bottom: 15px; border-left: 5px solid var(--main);">
+            <h3 id="q-title" style="margin: 0; color: #cdd6f4;"></h3>
+        </div>
+        <div id="q-content">
+            <div id="q-visual-container"></div>
+            
+            <div id="input-area">
+                <input type="text" id="answer-input" placeholder="答えを入力">
+                <button class="btn-main" onclick="checkAnswer()">認証する</button>
+                <div id="result-msg" style="margin-top:12px; text-align:center; font-weight:bold;"></div>
+            </div>
+            
+            <!-- ヒント表示エリア -->
+            <div id="hint-area" style="margin-top:15px; display:none;">
+                <div id="hint-display" style="background:#fef9c3; color:#333; padding:15px; border-radius:10px; margin-bottom:10px; border-left:5px solid #facc15; display:none; font-size:14px; font-weight:bold; line-height:1.5;"></div>
+                <button id="hint-toggle-btn" class="btn-main" style="height:40px; font-size:13px; background:#313244; color:#cdd6f4; border:1px solid #45475a; box-shadow:none;">💡 ヒントを見る</button>
+            </div>
+
+            <div id="clear-note" style="display:none; background:#11111b; padding:20px; border-radius:15px; border:2px solid #a6e3a1;"></div>
+        </div>
+    </div>
+
+    <!-- 脱出成功画面 -->
+    <div id="screen-ditto" class="screen" style="justify-content:center; align-items:center; background: radial-gradient(circle, #111 0%, #000 100%);">
+        <div style="font-size: 60px;">🎉🔑🎉</div>
+        <h2 style="color:#a6e3a1; font-size: 26px; letter-spacing: 2px;">ALL CLEAR!</h2>
+        <img id="final-img" style="width:85%; max-height:250px; object-fit:contain; border-radius:15px; margin:20px 0; border: 1px solid #45475a;">
+        <p id="final-note-display" style="padding:0 24px; line-height:1.8; color: #cdd6f4; text-align: left; background: #1e1e2e; border-radius: 12px; margin: 10px 20px; padding: 15px;"></p>
+        <button class="btn-main" style="max-width:200px; margin-top: 20px;" onclick="location.reload()">タイトルへ</button>
+    </div>
+</div>
+
+<script>
+    const csvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSCj5HzSY2sfgR_5vI2D_31EMaZSf61gb-Q6snKbqBEykj6ZUIpreJ_mqYvI1_dPZj_hbzvS_cNMPjd/pub?output=csv";
+    const imageFolder = ""; 
+
+    let puzzles = [];
+    let clearedIds = JSON.parse(localStorage.getItem('ivy_cleared') || '[]');
+    let currentPz = null;
+    let bigPuzzleId = null;
+    let mapImgName = ""; 
+
+    function startGlSequence() {
+        const videoOverlay = document.getElementById('video-overlay');
+        videoOverlay.style.display = 'flex';
+        setTimeout(endVideoAndShowBug, 800);
+    }
+
+    function endVideoAndShowBug() {
+        const videoOverlay = document.getElementById('video-overlay');
+        const errorOverlay = document.getElementById('error-overlay');
+        
+        videoOverlay.style.display = 'none';
+        errorOverlay.style.animation = 'flash 0.15s infinite';
+        errorOverlay.style.display = 'block';
+
+        setTimeout(() => {
+            errorOverlay.style.display = 'none';
+            const titleScreen = document.getElementById('screen-title');
+            titleScreen.style.background = 'radial-gradient(circle, #1a237e 0%, #0f172a 100%)';
+            document.getElementById('fake-title-area').style.display = 'none';
+            document.getElementById('real-title-area').style.display = 'block';
+            titleScreen.scrollTop = 0;
+        }, 1500);
+    }
+
+    function getImgPath(fileName) {
+        if (!fileName || fileName.trim().length < 2) return "";
+        if (fileName.startsWith('http')) return fileName;
+        return imageFolder + fileName.trim();
+    }
+
+    async function load() {
+        try {
+            let text = "";
+            try {
+                const res = await fetch(csvUrl + "&t=" + Date.now());
+                text = await res.text();
+            } catch (fetchError) {
+                const proxyUrl = "https://images" + Math.floor(Math.random() * 3 + 1) + "-focus-opensocial.googleusercontent.com/gadgets/proxy?container=focus&refresh=0&url=" + encodeURIComponent(csvUrl);
+                const res = await fetch(proxyUrl);
+                text = await res.text();
+            }
+
+            const lines = text.split(/\r?\n/).filter(l => l.trim() !== "");
+            const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+            const getCol = (name) => headers.indexOf(name);
+
+            puzzles = [];
+
+            for (let i = 1; i < lines.length; i++) {
+                const c = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(s => s.replace(/"/g, '').trim());
+                if (c.length < 4) continue;
+                
+                const rowId = c[getCol('id')] || "";
+                
+                if (rowId === 'title') {
+                    mapImgName = c[getCol('q_img')] || "";
+                    continue;
+                }
+                
+                puzzles.push({
+                    id: rowId,
+                    type: c[getCol('type')] || "",
+                    ans: (c[getCol('ans')] || "").split('/'),
+                    hint: c[getCol('hint')] || "",
+                    story: c[getCol('story')] || "",
+                    q_img: c[getCol('q_img')] || "",
+                    clear_img: c[getCol('clear_img')] || "",
+                    deco: "", deco_right: "", place: ""
+                });
+            }
+            
+            if (puzzles.length > 0) {
+                bigPuzzleId = puzzles[puzzles.length - 1]?.id;
+            }
+            
+            const mapContainer = document.getElementById('map-img-container');
+            const mapPath = getImgPath(mapImgName);
+            if(mapPath) {
+                mapContainer.innerHTML = `<img src="${mapPath}" class="modal-img">`;
+            } else {
+                mapContainer.innerHTML = `<p style="color:#bababc; font-size:14px; margin:20px 0;">⚠️ マップ画像が登録されていません。<br>スプレッドシートのtitle行のq_img列を確認してください。</p>`;
+            }
+
+            renderMenu();
+        } catch (e) { 
+            console.error("Load Error:", e); 
+            alert("データの読み込みに失敗しました。1行目の列名やウェブ公開設定を確認してください。");
+        }
+    }
+
+    function renderMenu() {
+        const list = document.getElementById('list');
+        const bigArea = document.getElementById('big-mystery-area');
+        
+        list.innerHTML = ""; bigArea.innerHTML = "";
+        
+        // 最後の行（大謎）を除いたものが小謎リスト
+        const smalls = puzzles.slice(0, -1);
+        const big = puzzles[puzzles.length - 1];
+
+        smalls.forEach(p => {
+            const btn = document.createElement('button');
+            btn.className = `course-btn ${clearedIds.includes(p.id) ? 'cleared' : ''}`;
+            btn.innerHTML = `<span class="btn-label">${p.type}</span>`;
+            btn.onclick = () => showQuiz(p);
+            list.appendChild(btn);
+        });
+
+        // 【ここを変更】小謎が「すべてクリア状態」のときのみ、大謎ボタンを生成して表示する
+        const allOk = smalls.length > 0 && smalls.every(p => clearedIds.includes(p.id));
+        if (allOk && big) {
+            const bBtn = document.createElement('button');
+            bBtn.className = `course-btn ${clearedIds.includes(big.id) ? 'cleared' : ''}`;
+            bBtn.style.border = "2px dashed var(--secondary)";
+            bBtn.innerHTML = `<span class="btn-label" style="color:var(--secondary)">🚨 ${big.type}</span>`;
+            bBtn.onclick = () => showQuiz(big);
+            bigArea.appendChild(bBtn);
+        }
+    }
+
+    function openMapModal() {
+        document.getElementById('map-modal').style.display = 'flex';
+    }
+
+    function closeMapModal() {
+        document.getElementById('map-modal').style.display = 'none';
+    }
+
+    function showQuiz(p) {
+        currentPz = p;
+        document.getElementById('q-title').innerText = p.type;
+        
+        const qVis = document.getElementById('q-visual-container');
+        const inputArea = document.getElementById('input-area');
+        const clearNote = document.getElementById('clear-note');
+        const inputField = document.getElementById('answer-input');
+        const hintArea = document.getElementById('hint-area');
+        const hintDisplay = document.getElementById('hint-display');
+        const hintBtn = document.getElementById('hint-toggle-btn');
+        
+        document.getElementById('result-msg').innerText = "";
+        inputField.value = "";
+        hintDisplay.style.display = "none";
+
+        if (p.id === bigPuzzleId) {
+            inputField.setAttribute('inputmode', 'numeric');
+            inputField.setAttribute('pattern', '[0-9]*');
+            inputField.placeholder = "答えの数値を半角数字で入力";
+        } else {
+            inputField.removeAttribute('inputmode');
+            inputField.removeAttribute('pattern');
+            inputField.placeholder = "答えを入力";
+        }
+
+        const qPath = getImgPath(p.q_img);
+        qVis.innerHTML = qPath ? `<img src="${qPath}" class="q-visual-img">` : "";
+        qVis.style.display = qPath ? "block" : "none";
+        
+        if(clearedIds.includes(p.id)) {
+            inputArea.style.display = "none";
+            qVis.style.display = "none";
+            hintArea.style.display = "none";
+            clearNote.style.display = "block";
+            const cPath = getImgPath(p.clear_img);
+            let imgHtml = cPath ? `<img src="${cPath}" class="explanation-img">` : "";
+            clearNote.innerHTML = `<div style="font-weight:bold; color:#a6e3a1; margin-bottom:8px;">🔓 CLEAR!</div><p style="line-height:1.6; color:#cdd6f4;">${p.story}</p>${imgHtml}<button class="btn-main" style="margin-top:15px; background:#45475a; box-shadow:none;" onclick="changeScreen('screen-main')">一覧に戻る</button>`;
+        } else {
+            inputArea.style.display = "block";
+            clearNote.style.display = "none";
+            
+            if (p.hint && p.hint.trim().length > 0) {
+                hintArea.style.display = "block";
+                hintBtn.onclick = () => {
+                    hintDisplay.innerText = p.hint;
+                    hintDisplay.style.display = hintDisplay.style.display === "none" ? "block" : "none";
+                };
+            } else {
+                hintArea.style.display = "none";
+            }
+        }
+        changeScreen('screen-quiz');
+    }
+
+    function checkAnswer() {
+        const input = document.getElementById('answer-input').value.trim();
+        if(!input) return;
+        const userInput = input.toLowerCase().replace(/[！-～]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0));
+        const isCorrect = currentPz.ans.some(a => a.trim().toLowerCase().replace(/[！-～]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)) === userInput);
+
+        if(isCorrect) {
+            if(!clearedIds.includes(currentPz.id)) {
+                clearedIds.push(currentPz.id);
+                localStorage.setItem('ivy_cleared', JSON.stringify(clearedIds));
+            }
+            
+            if (currentPz.id === bigPuzzleId) {
+                triggerEscapeSuccess();
+            } else {
+                showQuiz(currentPz);
+            }
+        } else {
+            document.getElementById('result-msg').innerText = "❌ 認証に失敗しました。";
+            document.getElementById('result-msg').style.color = "#f38ba8";
+        }
+    }
+
+    function triggerEscapeSuccess() {
+        const bigPuzzle = puzzles[puzzles.length - 1];
+        if(bigPuzzle) {
+            document.getElementById('final-note-display').innerText = bigPuzzle.story;
+            const fImg = document.getElementById('final-img');
+            const fPath = getImgPath(bigPuzzle.clear_img);
+            if (fPath) { fImg.src = fPath; fImg.style.display = 'block'; }
+            changeScreen('screen-ditto');
+        }
+    }
+
+    function changeScreen(id) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+        if(id === 'screen-main') renderMenu();
+    }
+
+    load();
+</script>
+</body>
+</html>
